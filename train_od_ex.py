@@ -18,12 +18,25 @@ os.chdir(OD_MODELS_PATH)
 matplotlib.use('module://backend_interagg')
 
 
-class RubberDucksTraining:
+class Config:
+    def __init__(self,
+                 batch_size,
+                 learning_rate,
+                 num_batches):
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.num_batches = num_batches
+
+
+class TrainingPipeline:
     def __init__(self):
         physical_devices = tf.config.list_physical_devices('GPU')
         for device in physical_devices:
             tf.config.experimental.set_memory_growth(device, True)
         self.gt_boxes = []
+        self.config = Config(batch_size=4, learning_rate=1e-2, num_batches=100)
+
+        # Pipeline themself
         self.load_dataset()
         self.get_gt_boxes()
         self.preprocess_data()
@@ -156,9 +169,9 @@ class RubberDucksTraining:
         # These parameters can be tuned; since our training set has 5 images
         # it doesn't make sense to have a much larger batch size, though we could
         # fit more examples in memory if we wanted to.
-        batch_size = 4
-        learning_rate = 0.01
-        num_batches = 100
+        batch_size = self.config.batch_size
+        learning_rate = self.config.learning_rate
+        num_batches = self.config.num_batches
 
         # Select variables in top layers to fine-tune.
         trainable_variables = self.detection_model.trainable_variables
@@ -285,4 +298,4 @@ class RubberDucksTraining:
 
 
 if __name__ == '__main__':
-    RubberDucksTraining()
+    TrainingPipeline()
