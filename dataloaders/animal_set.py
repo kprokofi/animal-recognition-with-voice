@@ -1,5 +1,6 @@
 from scipy.io import loadmat
 import numpy as np
+import pandas as pd
 import os
 import cv2
 from pathlib import Path
@@ -10,40 +11,42 @@ def build_datasets(data_root, ann_root, batch_size_train=128, batch_size_val=128
     imdb = loadmat(ann_root + os.sep + 'imdb-animalParts-eye.mat')
     bbox = imdb['bbx']['loc'][0,0].T
     bbox_to_id = imdb['bbx']['imageId'][0][0][0]
-    set_ = imdb['bbx']['set'][0][0][0]
     classes = imdb['bbx']['class'][0][0][0]
-    train_classes = classes[set_ == 1]
-    val_classes = classes[set_ == 2]
-    train_ids = bbox_to_id[set_ == 1]
-    val_ids = bbox_to_id[set_ == 2]
+    set_ = imdb['bbx']['set'][0][0][0]
+    mapped_array_bbox = [(id_,bb) for id_,bb in zip(bbox_to_id, bbox)]
     zip_ = zip(list(imdb['images']['id'][0][0][0]), list(imdb['images']['name'][0][0][0]))
-    dict_ = dict()
+    dict_images = dict()
     for k,v in zip_:
         if v[0].startswith('val'):
             new_file = 'val_original/' + v[0][4:]
         else:
             new_file = v[0]
-        dict_[k] = new_file
-    # dict_ = {k : v[0] for k,v in zip_}
-    images_train = [data_root + os.sep + dict_[id_] for id_ in train_ids if id_ in dict_]
-    bbox_train = bbox[set_ == 1]
-    images_val = [data_root + os.sep + dict_[id_] for id_ in val_ids if id_ in dict_]
-    bbox_val = bbox[set_ == 2]
+        dict_images[k] = new_file
 
-    ds_train = tf.data.Dataset.from_tensor_slices((images_train, bbox_train, train_classes))
-    ds_val = tf.data.Dataset.from_tensor_slices((images_val, bbox_val, val_classes))
+    train_dataset_dict = dict()
+    val_dataset_dict = dict()
+    for id_, bb, cls, s in zip(bbox_to_id, bbox, classes, set_, ):
+        if s == 1:
+            if id_ in train_dataset_dict:
+                train_dataset_dict[id_]['bboxes'].append(bb)
+                train_dataset_dict[id_]['classes'].append(cls)
+            else:
+                train_dataset_dict[id_] = dict(image=dict_images[id_],bboxes=[bb],classes=[cls])
+        else:
+            if id_ in val_dataset_dict:
+                val_dataset_dict[id_]['bboxes'].append(bb)
+                val_dataset_dict[id_]['classes'].append(cls)
+            else:
+                val_dataset_dict[id_] = dict(image=dict_images[id_],bboxes=[bb],classes=[cls])
 
-    ds_train = ds_train.map(read_image).map(augment).batch(batch_size_train)
-    ds_val = ds_val.map(read_image).map(augment).batch(batch_size_val)
+    return train_dataset_dict, val_dataset_dict
 
-    return ds_train, ds_val
-
-def read_image(image_path, bbox, label):
-    image = tf.io.read_file(image_path)
+def read_image(dict_object):
+    image = tf.io.read_file(dict_object['image'])
     image = tf.image.decode_jpeg(image, channels=3)
-    w = tf.shape(image)[0]
     shapes = tf.cast(tf.shape(image), tf.float32)
     w,h = shapes[0], shapes[1]
+
     return image, [bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h], label
 
 def augment(image, bbox, labels):
