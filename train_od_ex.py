@@ -1,6 +1,8 @@
 import os
 import random
 import numpy as np
+import sys
+import cv2 as cv
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -11,6 +13,7 @@ from object_detection.builders import model_builder
 
 from utils import load_image_into_numpy_array
 from utils import plot_detections
+from dataloaders.animal_set import build_datasets
 
 OD_MODELS_PATH = '.'
 os.chdir(OD_MODELS_PATH)
@@ -18,14 +21,18 @@ os.chdir(OD_MODELS_PATH)
 matplotlib.use('module://backend_interagg')
 
 
+ANNOTATION_PATH = './data'
+IMAGENET_PATH = sys.argv[1]
+
+
 class Config:
     def __init__(self,
+                 epochs,
                  batch_size,
-                 learning_rate,
-                 num_batches):
+                 learning_rate):
+        self.epochs = epochs
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.num_batches = num_batches
 
 
 class TrainingPipeline:
@@ -34,23 +41,20 @@ class TrainingPipeline:
         for device in physical_devices:
             tf.config.experimental.set_memory_growth(device, True)
         self.gt_boxes = []
-        self.config = Config(batch_size=4, learning_rate=1e-2, num_batches=100)
+        self.config = Config(epochs=5,
+                             batch_size=64,
+                             learning_rate=1e-3)
 
         # Pipeline themself
-        self.load_dataset()
-        self.get_gt_boxes()
-        self.preprocess_data()
+        self.load_dataset('', ANNOTATION_PATH)
         self.create_model_from_checkpoint()
         self.finetune()
         self.test()
 
-    def load_dataset(self):
-        # Load images and visualize
-        train_image_dir = 'models/research/object_detection/test_images/ducky/train/'
-        self.train_images_np = []
-        for i in range(1, 6):
-            image_path = os.path.join(train_image_dir, 'robertducky' + str(i) + '.jpg')
-            self.train_images_np.append(load_image_into_numpy_array(image_path))
+    def load_dataset(self, imagenet_root: str, annotation_root: str):
+        self.train_data_dict, self.val_data_dict = build_datasets(imagenet_root, annotation_root)
+        self.train_data_dict = list(self.train_data_dict.values())
+        self.val_data_dict = list(self.val_data_dict.values())
 
     def visualize_img(self):
 
@@ -69,43 +73,27 @@ class TrainingPipeline:
         plt.show()
 
 
-    def get_gt_boxes(self):
-        self.gt_boxes = [
-                 np.array([[0.436, 0.591, 0.629, 0.712]], dtype=np.float32),
-                 np.array([[0.539, 0.583, 0.73, 0.71]], dtype=np.float32),
-                 np.array([[0.464, 0.414, 0.626, 0.548]], dtype=np.float32),
-                 np.array([[0.313, 0.308, 0.648, 0.526]], dtype=np.float32),
-                 np.array([[0.256, 0.444, 0.484, 0.629]], dtype=np.float32)
-        ]
+    @staticmethod
+    def preprocess_data(batch):
+        """
+        Preprocess batch
+        :param batch: [{img_path: ..., bbox: [], classes: []}]
+        :return:
+        """
+        images_list = []
+        bboxes = []
+        classes = []
+        for elem in batch:
+            path = os.path.join(IMAGENET_PATH,  elem['image'])
+            image = cv.imread(path)
+            image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+            assert False, "Should preprocess bboxes"
+            images_list.append(tf.expand_dims(tf.convert_to_tensor(image), axis=0))
+            bboxes.append(tf.convert_to_tensor(elem['bboxs'], dtype=tf.float32))
+            classes.append(tf.convert_to_tensor(elem['classes'], dtype=tf.float32))
 
-    def preprocess_data(self):
-        # By convention, our non-background classes start counting at 1.  Given
-        # that we will be predicting just one class, we will therefore assign it a
-        # `class id` of 1.
-        self.duck_class_id = 1
-        self.num_classes = 1
-
-        self.category_index = {self.duck_class_id: {'id': self.duck_class_id, 'name': 'rubber_ducky'}}
-
-        # Convert class labels to one-hot; convert everything to tensors.
-        # The `label_id_offset` here shifts all classes by a certain number of indices;
-        # we do this here so that the model receives one-hot labels where non-background
-        # classes start counting at the zeroth index.  This is ordinarily just handled
-        # automatically in our training binaries, but we need to reproduce it here.
-        self.label_id_offset = 1
-        self.train_image_tensors = []
-        self.gt_classes_one_hot_tensors = []
-        self.gt_box_tensors = []
-        for (train_image_np, gt_box_np) in zip(
-                  self.train_images_np, self.gt_boxes):
-            self.train_image_tensors.append(tf.expand_dims(tf.convert_to_tensor(
-                train_image_np, dtype=tf.float32), axis=0))
-            self.gt_box_tensors.append(tf.convert_to_tensor(gt_box_np, dtype=tf.float32))
-            zero_indexed_groundtruth_classes = tf.convert_to_tensor(
-                np.ones(shape=[gt_box_np.shape[0]], dtype=np.int32) - self.label_id_offset)
-            self.gt_classes_one_hot_tensors.append(tf.one_hot(
-                zero_indexed_groundtruth_classes, self.num_classes))
         print('Done prepping data.')
+        return images_list, bboxes, classes
 
     def visualize_np(self):
         dummy_scores = np.array([1.0], dtype=np.float32)  # give boxes a score of 100%
@@ -171,7 +159,6 @@ class TrainingPipeline:
         # fit more examples in memory if we wanted to.
         batch_size = self.config.batch_size
         learning_rate = self.config.learning_rate
-        num_batches = self.config.num_batches
 
         # Select variables in top layers to fine-tune.
         trainable_variables = self.detection_model.trainable_variables
@@ -231,25 +218,18 @@ class TrainingPipeline:
             self.detection_model, optimizer, to_fine_tune)
 
         print('Start fine-tuning!', flush=True)
-        for idx in range(num_batches):
-            # Grab keys for a random subset of examples
-            all_keys = list(range(len(self.train_images_np)))
-            random.shuffle(all_keys)
-            example_keys = all_keys[:batch_size]
+        for epoch in range(self.config.epochs):
+            for k in range(0, len(self.train_data_dict), self.config.batch_size):
+                # Get slice
+                batch = self.train_data_dict[k: k + self.config.batch_size]
+                image_tensors, bboxes, classes = self.preprocess_data(batch)
 
-            # Note that we do not do data augmentation in this demo.  If you want a
-            # a fun exercise, we recommend experimenting with random horizontal flipping
-            # and random cropping :)
-            gt_boxes_list = [self.gt_box_tensors[key] for key in example_keys]
-            gt_classes_list = [self.gt_classes_one_hot_tensors[key] for key in example_keys]
-            image_tensors = [self.train_image_tensors[key] for key in example_keys]
 
-            # Training step (forward pass + backwards pass)
-            total_loss = train_step_fn(image_tensors, gt_boxes_list, gt_classes_list)
+                # Training step (forward pass + backwards pass)
+                total_loss = train_step_fn(image_tensors, bboxes, classes)
 
-            if idx % 10 == 0:
-                print('batch ' + str(idx) + ' of ' + str(num_batches)
-                      + ', loss=' + str(total_loss.numpy()), flush=True)
+                if k % self.config.batch_size * 10 == 0:
+                    print(f'epoch {epoch} step {k} loss=' + str(total_loss.numpy()), flush=True)
 
         print('Done fine-tuning!')
 

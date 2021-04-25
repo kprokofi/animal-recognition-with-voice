@@ -7,7 +7,10 @@ from pathlib import Path
 import tensorflow as tf
 
 def build_datasets(data_root, ann_root, batch_size_train=128, batch_size_val=128):
-    ''' function that build tensorflow dataset '''
+    '''
+    function that build tensorflow dataset
+    :return: Train and val datasets in format: dict(id: imgenet_id, dict(image_path, bbox_list, classes_list))
+    '''
     imdb = loadmat(ann_root + os.sep + 'imdb-animalParts-eye.mat')
     bbox = imdb['bbx']['loc'][0,0].T
     bbox_to_id = imdb['bbx']['imageId'][0][0][0]
@@ -16,16 +19,19 @@ def build_datasets(data_root, ann_root, batch_size_train=128, batch_size_val=128
     mapped_array_bbox = [(id_,bb) for id_,bb in zip(bbox_to_id, bbox)]
     zip_ = zip(list(imdb['images']['id'][0][0][0]), list(imdb['images']['name'][0][0][0]))
     dict_images = dict()
-    for k,v in zip_:
-        if v[0].startswith('val'):
-            new_file = 'val_original/' + v[0][4:]
-        else:
-            new_file = v[0]
-        dict_images[k] = new_file
+    for k, v in zip_:
+        dict_images[k] = v[0]
 
     train_dataset_dict = dict()
     val_dataset_dict = dict()
+
+    unique_classes = np.unique(classes)
+    unique_classes.sort()
+    map_ = {class_: new_class for class_, new_class in zip(unique_classes, range(len(unique_classes)))}
+
+    # get classes
     for id_, bb, cls, s in zip(bbox_to_id, bbox, classes, set_, ):
+        cls = map_[cls]
         if s == 1:
             if id_ in train_dataset_dict:
                 train_dataset_dict[id_]['bboxes'].append(bb)
@@ -41,13 +47,13 @@ def build_datasets(data_root, ann_root, batch_size_train=128, batch_size_val=128
 
     return train_dataset_dict, val_dataset_dict
 
-def read_image(dict_object):
-    image = tf.io.read_file(dict_object['image'])
-    image = tf.image.decode_jpeg(image, channels=3)
-    shapes = tf.cast(tf.shape(image), tf.float32)
-    w,h = shapes[0], shapes[1]
-
-    return image, [bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h], label
+#def read_image(dict_object):
+#    image = tf.io.read_file(dict_object['image'])
+#    image = tf.image.decode_jpeg(image, channels=3)
+#    shapes = tf.cast(tf.shape(image), tf.float32)
+#    w,h = shapes[0], shapes[1]
+#
+#    return image, [bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h], label
 
 def augment(image, bbox, labels):
     image = tf.image.resize(image, [640,640])
