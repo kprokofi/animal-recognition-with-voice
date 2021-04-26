@@ -20,7 +20,7 @@ def build_datasets(data_root, ann_root, batch_size_train=128, batch_size_val=128
     zip_ = zip(list(imdb['images']['id'][0][0][0]), list(imdb['images']['name'][0][0][0]))
     dict_images = dict()
     for k, v in zip_:
-        dict_images[k] = v[0]
+        dict_images[k] = 'val_original/' + ''.join(v[0].split('/')[1:]) if str(v[0]).startswith('val') else v[0]
 
     train_dataset_dict = dict()
     val_dataset_dict = dict()

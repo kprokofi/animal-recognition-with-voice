@@ -29,10 +29,12 @@ class Config:
     def __init__(self,
                  epochs,
                  batch_size,
-                 learning_rate):
+                 learning_rate,
+                 num_classes):
         self.epochs = epochs
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.num_classes = num_classes
 
 
 class TrainingPipeline:
@@ -42,8 +44,9 @@ class TrainingPipeline:
             tf.config.experimental.set_memory_growth(device, True)
         self.gt_boxes = []
         self.config = Config(epochs=5,
-                             batch_size=64,
-                             learning_rate=1e-3)
+                             batch_size=4,
+                             learning_rate=1e-3,
+                             num_classes=100)
 
         # Pipeline themself
         self.load_dataset('', ANNOTATION_PATH)
@@ -73,8 +76,7 @@ class TrainingPipeline:
         plt.show()
 
 
-    @staticmethod
-    def preprocess_data(batch):
+    def preprocess_data(self, batch):
         """
         Preprocess batch
         :param batch: [{img_path: ..., bbox: [], classes: []}]
@@ -87,10 +89,15 @@ class TrainingPipeline:
             path = os.path.join(IMAGENET_PATH,  elem['image'])
             image = cv.imread(path)
             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-            assert False, "Should preprocess bboxes"
-            images_list.append(tf.expand_dims(tf.convert_to_tensor(image), axis=0))
-            bboxes.append(tf.convert_to_tensor(elem['bboxs'], dtype=tf.float32))
-            classes.append(tf.convert_to_tensor(elem['classes'], dtype=tf.float32))
+            h, w, _ = image.shape
+            scaled_bboxs = []
+            for bbox in elem['bboxes']:
+                scaled_bboxs.append([bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h])
+
+            images_list.append(tf.expand_dims(tf.convert_to_tensor(image, dtype=tf.float32), axis=0))
+            bboxes.append(tf.convert_to_tensor(scaled_bboxs, dtype=tf.float32))
+            classes.append(tf.convert_to_tensor(tf.one_hot(elem['classes'], depth=self.config.num_classes),
+                                                dtype=tf.float32))
 
         print('Done prepping data.')
         return images_list, bboxes, classes
@@ -112,7 +119,7 @@ class TrainingPipeline:
         tf.keras.backend.clear_session()
 
         print('Building model and restoring weights for fine-tuning...', flush=True)
-        num_classes = 1
+        num_classes = self.config.num_classes
         pipeline_config = 'models/research/object_detection/configs/tf2/ssd_resnet50_v1_fpn_640x640_coco17_tpu-8.config'
         checkpoint_path = 'models/research/object_detection/test_data/checkpoint/ckpt-0'
 
