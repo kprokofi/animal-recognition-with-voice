@@ -3,6 +3,7 @@ import random
 import numpy as np
 import sys
 import cv2 as cv
+from tqdm import tqdm
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ from dataloaders.animal_set import build_datasets
 OD_MODELS_PATH = '.'
 os.chdir(OD_MODELS_PATH)
 # For interactive plot in PyCharm
-matplotlib.use('module://backend_interagg')
+#matplotlib.use('module://backend_interagg')
 
 
 ANNOTATION_PATH = './data'
@@ -43,9 +44,9 @@ class TrainingPipeline:
         for device in physical_devices:
             tf.config.experimental.set_memory_growth(device, True)
         self.gt_boxes = []
-        self.config = Config(epochs=5,
-                             batch_size=4,
-                             learning_rate=1e-3,
+        self.config = Config(epochs=100,
+                             batch_size=24,
+                             learning_rate=8e-4,
                              num_classes=100)
 
         # Pipeline themself
@@ -60,7 +61,6 @@ class TrainingPipeline:
         self.val_data_dict = list(self.val_data_dict.values())
 
     def visualize_img(self):
-
         plt.rcParams['axes.grid'] = False
         plt.rcParams['xtick.labelsize'] = False
         plt.rcParams['ytick.labelsize'] = False
@@ -74,7 +74,6 @@ class TrainingPipeline:
             plt.subplot(2, 3, idx+1)
             plt.imshow(train_image_np)
         plt.show()
-
 
     def preprocess_data(self, batch):
         """
@@ -99,7 +98,6 @@ class TrainingPipeline:
             classes.append(tf.convert_to_tensor(tf.one_hot(elem['classes'], depth=self.config.num_classes),
                                                 dtype=tf.float32))
 
-        print('Done prepping data.')
         return images_list, bboxes, classes
 
     def visualize_np(self):
@@ -185,9 +183,7 @@ class TrainingPipeline:
             # Comment out the tf.function decorator if you want the inside of the
             # function to run eagerly.
             @tf.function
-            def train_step_fn(image_tensors,
-                              groundtruth_boxes_list,
-                              groundtruth_classes_list):
+            def train_step_fn(preprocessed_images):
                 """A single training iteration.
 
                 Args:
@@ -204,13 +200,7 @@ class TrainingPipeline:
                   A scalar tensor representing the total loss for the input batch.
                 """
                 shapes = tf.constant(batch_size * [[640, 640, 3]], dtype=tf.int32)
-                model.provide_groundtruth(
-                    groundtruth_boxes_list=groundtruth_boxes_list,
-                    groundtruth_classes_list=groundtruth_classes_list)
                 with tf.GradientTape() as tape:
-                    preprocessed_images = tf.concat(
-                        [self.detection_model.preprocess(image_tensor)[0]
-                         for image_tensor in image_tensors], axis=0)
                     prediction_dict = model.predict(preprocessed_images, shapes)
                     losses_dict = model.loss(prediction_dict, shapes)
                     total_loss = losses_dict['Loss/localization_loss'] + losses_dict['Loss/classification_loss']
@@ -220,24 +210,45 @@ class TrainingPipeline:
 
             return train_step_fn
 
-        optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
+        scheduler = tf.keras.optimizers.schedules.ExponentialDecay(learning_rate, 500, 0.96)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=scheduler)
+
         train_step_fn = get_model_train_step_function(
             self.detection_model, optimizer, to_fine_tune)
 
+        checkpoint = tf.train.Checkpoint(model=self.detection_model)
+        checkpoint_manager = tf.train.CheckpointManager(checkpoint, './ckpt/', 5)
+
+        # Tensorboard
+        train_summary_writer = tf.summary.create_file_writer('./run/')
         print('Start fine-tuning!', flush=True)
         for epoch in range(self.config.epochs):
-            for k in range(0, len(self.train_data_dict), self.config.batch_size):
+            for k in tqdm(range(0, len(self.train_data_dict), self.config.batch_size)):
                 # Get slice
                 batch = self.train_data_dict[k: k + self.config.batch_size]
                 image_tensors, bboxes, classes = self.preprocess_data(batch)
 
-
                 # Training step (forward pass + backwards pass)
-                total_loss = train_step_fn(image_tensors, bboxes, classes)
+                self.detection_model.provide_groundtruth(
+                    groundtruth_boxes_list=bboxes,
+                    groundtruth_classes_list=classes)
 
-                if k % self.config.batch_size * 10 == 0:
-                    print(f'epoch {epoch} step {k} loss=' + str(total_loss.numpy()), flush=True)
+                preprocessed_images = tf.concat(
+                    [self.detection_model.preprocess(image_tensor)[0]
+                     for image_tensor in image_tensors], axis=0)
+                total_loss = train_step_fn(preprocessed_images)
 
+                print(f'epoch {epoch} step {k/batch_size} loss=' + str(total_loss.numpy()), flush=True)
+
+            with train_summary_writer.as_default():
+                tf.summary.scalar('loss', total_loss.numpy(), step=epoch)
+
+            if epoch + 1 % 10 == 0:
+                path = checkpoint_manager.save()
+                print(f'Save checkpoint to {path}')
+
+            path = checkpoint_manager.save()
+            print(f'Save checkpoint to {path}')
         print('Done fine-tuning!')
 
     def test(self):
