@@ -57,7 +57,9 @@ labels_to_voice = {
     'tree_frog': 'frog',
     'tailed_frog': 'frog',
     'wood_rabbit': 'rabbit',
-    'tabby': 'cat'
+    'tabby': 'cat',
+    'beagle': 'dog',
+    'pug': 'dog'
 }
 
 SOUNDS_PATH = os.getenv('SOUNDS_PATH') or './sounds'
