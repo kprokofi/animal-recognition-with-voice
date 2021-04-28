@@ -39,7 +39,7 @@ class Config:
 
 
 class TrainingPipeline:
-    def __init__(self):
+    def __init__(self, export=False):
         physical_devices = tf.config.list_physical_devices('GPU')
         for device in physical_devices:
             tf.config.experimental.set_memory_growth(device, True)
@@ -49,11 +49,12 @@ class TrainingPipeline:
                              learning_rate=8e-4,
                              num_classes=100)
 
-        # Pipeline themself
-        self.load_dataset('', ANNOTATION_PATH)
-        self.create_model_from_checkpoint()
-        self.finetune()
-        self.test()
+        if not export:
+            # Pipeline themself
+            self.load_dataset('', ANNOTATION_PATH)
+            self.create_model_from_checkpoint()
+            self.finetune()
+            self.test()
 
     def load_dataset(self, imagenet_root: str, annotation_root: str):
         self.train_data_dict, self.val_data_dict = build_datasets(imagenet_root, annotation_root)
@@ -112,6 +113,25 @@ class TrainingPipeline:
                 np.ones(shape=[self.gt_boxes[idx].shape[0]], dtype=np.int32),
                 dummy_scores, self.category_index)
         plt.show()
+
+    def get_model_from_checkpoint(self, checkpoint_path):
+        tf.keras.backend.clear_session()
+
+        num_classes = self.config.num_classes
+        pipeline_config = 'models/research/object_detection/configs/tf2/ssd_resnet50_v1_fpn_640x640_coco17_tpu-8.config'
+
+        configs = config_util.get_configs_from_pipeline_file(pipeline_config)
+        model_config = configs['model']
+        model_config.ssd.num_classes = num_classes
+        #model_config.ssd.freeze_batchnorm = True
+        detection_model = model_builder.build(
+            model_config=model_config, is_training=False)
+
+        checkpoint = tf.train.Checkpoint(model=detection_model)
+        status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_path))
+        print(f'model loaded with status {status}')
+        print('To launch on picture please watch test method')
+        return detection_model
 
     def create_model_from_checkpoint(self):
         tf.keras.backend.clear_session()
