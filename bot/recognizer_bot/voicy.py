@@ -62,15 +62,13 @@ labels_to_voice = {
     'pug': 'dog'
 }
 
-SOUNDS_PATH = os.getenv('SOUNDS_PATH') or './sounds'
 
-def prepare_voice(voice: str):
-    return os.path.join(SOUNDS_PATH, voice + '.ogg')
+def prepare_voice_path(sounds_path, voice_path: str):
+    return os.path.join(sounds_path, voice_path + '.ogg')
 
 
-def choose_voice(label: str):
+def get_voice_by_label(sounds_path: str, label: str):
     label = label.strip()
     if label in labels_to_voice:
-        return prepare_voice(labels_to_voice[label])
+        return prepare_voice_path(sounds_path, labels_to_voice[label])
     return None
-
