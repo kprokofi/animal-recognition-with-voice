@@ -22,15 +22,10 @@ class Classifier():
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    @staticmethod
     def upload_labels(classes_path):
         with open(classes_path) as f:
             labels = [line.strip().split()[1] for line in f.readlines()]
         return labels
-
-    @staticmethod
-    def s():
-        pass
 
     def classify(self, img):
         img_t = self.transform(img)
