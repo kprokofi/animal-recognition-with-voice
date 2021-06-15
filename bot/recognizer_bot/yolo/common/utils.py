@@ -157,7 +157,7 @@ def draw_boxes(image, boxes, classes, scores, class_names, colors, show_score=Tr
         #print(label, (xmin, ymin), (xmax, ymax))
 
         # if no color info, use black(0,0,0)
-        if colors == None:
+        if colors is None:
             color = (0, 0, 0)
         else:
             color = colors[cls]

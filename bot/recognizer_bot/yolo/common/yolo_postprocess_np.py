@@ -4,7 +4,7 @@ import numpy as np
 import copy
 from scipy.special import expit, softmax
 
-from common.wbf_postprocess import weighted_boxes_fusion
+from recognizer_bot.yolo.common.wbf_postprocess import weighted_boxes_fusion
 
 
 def yolo3_decode(predictions, anchors, num_classes, input_dims, elim_grid_sense=False):
