@@ -6,15 +6,63 @@ from scipy.special import expit, softmax
 
 from common.wbf_postprocess import weighted_boxes_fusion
 
+
+def yolo3_decode(predictions, anchors, num_classes, input_dims, elim_grid_sense=False):
+    """
+    YOLOv3 Head to process predictions from YOLOv3 models
+
+    :param num_classes: Total number of classes
+    :param anchors: YOLO style anchor list for bounding box assignment
+    :param input_dims: Input dimensions of the image
+    :param predictions: A list of three tensors with shape (N, 19, 19, 255), (N, 38, 38, 255) and (N, 76, 76, 255)
+    :return: A tensor with the shape (N, num_boxes, 85)
+    """
+    assert len(predictions) == len(
+        anchors)//3, 'anchor numbers does not match prediction.'
+
+    if len(predictions) == 3:  # assume 3 set of predictions is YOLOv3
+        anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+        scale_x_y = [1.05, 1.1, 1.2] if elim_grid_sense else [None, None, None]
+    elif len(predictions) == 2:  # 2 set of predictions is YOLOv3-tiny
+        anchor_mask = [[3, 4, 5], [0, 1, 2]]
+        scale_x_y = [1.05, 1.05] if elim_grid_sense else [None, None]
+    else:
+        raise ValueError(
+            'Unsupported prediction length: {}'.format(len(predictions)))
+
+    results = []
+    for i, prediction in enumerate(predictions):
+        results.append(yolo_decode(
+            prediction, anchors[anchor_mask[i]], num_classes, input_dims, scale_x_y=scale_x_y[i], use_softmax=False))
+
+    return np.concatenate(results, axis=1)
+
+
+def yolo3_postprocess_np(yolo_outputs, image_shape, anchors, num_classes, model_image_size, max_boxes=100, confidence=0.1, iou_threshold=0.4, elim_grid_sense=False):
+    predictions = yolo3_decode(yolo_outputs, anchors, num_classes,
+                               input_dims=model_image_size, elim_grid_sense=elim_grid_sense)
+    predictions = yolo_correct_boxes(
+        predictions, image_shape, model_image_size)
+
+    boxes, classes, scores = yolo_handle_predictions(predictions,
+                                                     image_shape,
+                                                     max_boxes=max_boxes,
+                                                     confidence=confidence,
+                                                     iou_threshold=iou_threshold)
+
+    boxes = yolo_adjust_boxes(boxes, image_shape)
+
+    return boxes, classes, scores
+
+
 def yolo_decode(prediction, anchors, num_classes, input_dims, scale_x_y=None, use_softmax=False):
     '''Decode final layer features to bounding box parameters.'''
     batch_size = np.shape(prediction)[0]
     num_anchors = len(anchors)
 
     grid_size = np.shape(prediction)[1:3]
-    #check if stride on height & width are same
+    # check if stride on height & width are same
     assert input_dims[0]//grid_size[0] == input_dims[1]//grid_size[1], 'model stride mismatch.'
-    stride = input_dims[0] // grid_size[0]
 
     prediction = np.reshape(prediction,
                             (batch_size, grid_size[0] * grid_size[1] * num_anchors, num_classes + 5))
@@ -47,15 +95,19 @@ def yolo_decode(prediction, anchors, num_classes, input_dims, scale_x_y=None, us
         #     https://arxiv.org/abs/2004.10934
         #     https://github.com/opencv/opencv/issues/17148
         #
-        box_xy_tmp = expit(prediction[..., :2]) * scale_x_y - (scale_x_y - 1) / 2
+        box_xy_tmp = expit(prediction[..., :2]) * \
+            scale_x_y - (scale_x_y - 1) / 2
         box_xy = (box_xy_tmp + x_y_offset) / np.array(grid_size)[::-1]
     else:
-        box_xy = (expit(prediction[..., :2]) + x_y_offset) / np.array(grid_size)[::-1]
-    box_wh = (np.exp(prediction[..., 2:4]) * anchors) / np.array(input_dims)[::-1]
+        box_xy = (expit(prediction[..., :2]) +
+                  x_y_offset) / np.array(grid_size)[::-1]
+    box_wh = (np.exp(prediction[..., 2:4]) *
+              anchors) / np.array(input_dims)[::-1]
 
     # Sigmoid objectness scores
     objectness = expit(prediction[..., 4])  # p_o (objectness score)
-    objectness = np.expand_dims(objectness, -1)  # To make the same number of values for axis 0 and 1
+    # To make the same number of values for axis 0 and 1
+    objectness = np.expand_dims(objectness, -1)
 
     if use_softmax:
         # Softmax class scores
@@ -100,7 +152,6 @@ def yolo_correct_boxes(predictions, img_shape, model_image_size):
     return np.concatenate([box_xy, box_wh, objectness, class_scores], axis=2)
 
 
-
 def yolo_handle_predictions(predictions, image_shape, max_boxes=100, confidence=0.1, iou_threshold=0.4, use_cluster_nms=False, use_wbf=False):
     boxes = predictions[:, :, :4]
     box_confidences = np.expand_dims(predictions[:, :, 4], -1)
@@ -118,19 +169,23 @@ def yolo_handle_predictions(predictions, image_shape, max_boxes=100, confidence=
 
     if use_cluster_nms:
         # use Fast/Cluster NMS for boxes postprocess
-        n_boxes, n_classes, n_scores = fast_cluster_nms_boxes(boxes, classes, scores, iou_threshold, confidence=confidence)
+        n_boxes, n_classes, n_scores = fast_cluster_nms_boxes(
+            boxes, classes, scores, iou_threshold, confidence=confidence)
     elif use_wbf:
         # use Weighted-Boxes-Fusion for boxes postprocess
-        n_boxes, n_classes, n_scores = weighted_boxes_fusion([boxes], [classes], [scores], image_shape, weights=None, iou_thr=iou_threshold)
+        n_boxes, n_classes, n_scores = weighted_boxes_fusion(
+            [boxes], [classes], [scores], image_shape, weights=None, iou_thr=iou_threshold)
     else:
         # Boxes, Classes and Scores returned from NMS
-        n_boxes, n_classes, n_scores = nms_boxes(boxes, classes, scores, iou_threshold, confidence=confidence)
+        n_boxes, n_classes, n_scores = nms_boxes(
+            boxes, classes, scores, iou_threshold, confidence=confidence)
 
     if n_boxes:
         boxes = np.concatenate(n_boxes)
         classes = np.concatenate(n_classes).astype('int32')
         scores = np.concatenate(n_scores)
-        boxes, classes, scores = filter_boxes(boxes, classes, scores, max_boxes)
+        boxes, classes, scores = filter_boxes(
+            boxes, classes, scores, max_boxes)
 
         return boxes, classes, scores
 
@@ -212,7 +267,8 @@ def box_diou(boxes):
     # box center distance
     x_center = x + w/2
     y_center = y + h/2
-    center_distance = np.power(x_center[1:] - x_center[0], 2) + np.power(y_center[1:] - y_center[0], 2)
+    center_distance = np.power(
+        x_center[1:] - x_center[0], 2) + np.power(y_center[1:] - y_center[0], 2)
 
     # get enclosed area
     enclose_xmin = np.minimum(x[1:], x[0])
@@ -224,7 +280,8 @@ def box_diou(boxes):
     # get enclosed diagonal distance
     enclose_diagonal = np.power(enclose_w, 2) + np.power(enclose_h, 2)
     # calculate DIoU, add epsilon in denominator to avoid dividing by 0
-    diou = iou - 1.0 * (center_distance) / (enclose_diagonal + np.finfo(float).eps)
+    diou = iou - 1.0 * (center_distance) / \
+        (enclose_diagonal + np.finfo(float).eps)
 
     return diou
 
@@ -253,16 +310,16 @@ def nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1, use_diou=Tr
             nscores.append(copy.deepcopy(s_nms[i]))
 
             # swap the max line and first line
-            b_nms[[i,0],:] = b_nms[[0,i],:]
-            c_nms[[i,0]] = c_nms[[0,i]]
-            s_nms[[i,0]] = s_nms[[0,i]]
+            b_nms[[i, 0], :] = b_nms[[0, i], :]
+            c_nms[[i, 0]] = c_nms[[0, i]]
+            s_nms[[i, 0]] = s_nms[[0, i]]
 
             if use_diou:
                 iou = box_diou(b_nms)
-                #iou = box_diou_matrix(b_nms, b_nms)[0][1:]
+                # iou = box_diou_matrix(b_nms, b_nms)[0][1:]
             else:
                 iou = box_iou(b_nms)
-                #iou = box_iou_matrix(b_nms, b_nms)[0][1:]
+                # iou = box_iou_matrix(b_nms, b_nms)[0][1:]
 
             # drop the last line since it has been record
             b_nms = b_nms[1:]
@@ -279,7 +336,8 @@ def nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1, use_diou=Tr
                     # score refresh formula:
                     # score = score * (1 - iou) if iou > threshold
                     depress_mask = np.where(iou > iou_threshold)[0]
-                    s_nms[depress_mask] = s_nms[depress_mask]*(1-iou[depress_mask])
+                    s_nms[depress_mask] = s_nms[depress_mask] * \
+                        (1-iou[depress_mask])
                 keep_mask = np.where(s_nms >= confidence)[0]
             else:
                 # normal Hard-NMS
@@ -295,7 +353,6 @@ def nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1, use_diou=Tr
     nclasses = [np.array(nclasses)]
     nscores = [np.array(nscores)]
     return nboxes, nclasses, nscores
-
 
 
 def box_iou_matrix(boxes1, boxes2):
@@ -321,10 +378,12 @@ def box_iou_matrix(boxes1, boxes2):
     area2 = box_area(boxes2.T)
 
     inter_min = np.maximum(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    inter_max = np.minimum(boxes1[:, None, :2]+boxes1[:, None, 2:], boxes2[:, :2]+boxes2[:, 2:])  # [N,M,2]
+    inter_max = np.minimum(
+        boxes1[:, None, :2]+boxes1[:, None, 2:], boxes2[:, :2]+boxes2[:, 2:])  # [N,M,2]
     inter = np.maximum(inter_max - inter_min, 0).prod(axis=-1)  # [N,M]
 
-    iou = inter / (area1[:, None] + area2 - inter)  # iou = inter / (area1 + area2 - inter)
+    # iou = inter / (area1 + area2 - inter)
+    iou = inter / (area1[:, None] + area2 - inter)
     return iou
 
 
@@ -343,21 +402,26 @@ def box_diou_matrix(boxes1, boxes2):
     iou = box_iou_matrix(boxes1, boxes2)
 
     # box center distance
-    center_distance = (boxes1[:, None, :2]+boxes1[:, None, 2:]/2) - (boxes2[:, :2]+boxes2[:, 2:]/2)  # [N,M,2]
-    center_distance = np.power(center_distance[..., 0], 2) + np.power(center_distance[..., 1], 2)  # [N,M]
+    center_distance = (boxes1[:, None, :2]+boxes1[:, None, 2:]/2) - \
+        (boxes2[:, :2]+boxes2[:, 2:]/2)  # [N,M,2]
+    center_distance = np.power(
+        center_distance[..., 0], 2) + np.power(center_distance[..., 1], 2)  # [N,M]
 
     # get enclosed area
     enclose_min = np.minimum(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    enclose_max = np.maximum(boxes1[:, None, :2]+boxes1[:, None, 2:], boxes2[:, :2]+boxes2[:, 2:])  # [N,M,2]
+    enclose_max = np.maximum(
+        boxes1[:, None, :2]+boxes1[:, None, 2:], boxes2[:, :2]+boxes2[:, 2:])  # [N,M,2]
 
-    enclose_wh = np.maximum(enclose_max - enclose_min, 0) # [N,M,2]
-    enclose_wh = np.maximum(enclose_max - enclose_min, 0) # [N,M,2]
+    enclose_wh = np.maximum(enclose_max - enclose_min, 0)  # [N,M,2]
+    enclose_wh = np.maximum(enclose_max - enclose_min, 0)  # [N,M,2]
 
     # get enclosed diagonal distance matrix
-    enclose_diagonal = np.power(enclose_wh[..., 0], 2) + np.power(enclose_wh[..., 1], 2)  # [N,M]
+    enclose_diagonal = np.power(
+        enclose_wh[..., 0], 2) + np.power(enclose_wh[..., 1], 2)  # [N,M]
 
     # calculate DIoU, add epsilon in denominator to avoid dividing by 0
-    diou = iou - 1.0 * np.true_divide(center_distance, enclose_diagonal + np.finfo(float).eps)
+    diou = iou - 1.0 * \
+        np.true_divide(center_distance, enclose_diagonal + np.finfo(float).eps)
 
     return diou
 
@@ -431,19 +495,22 @@ def fast_cluster_nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1
             for i in range(200):
                 prev_iou_matrix = copy.deepcopy(updated_iou_matrix)
                 max_iou = np.max(prev_iou_matrix, axis=0)
-                keep_diag = np.diag((max_iou < iou_threshold).astype(np.float32))
+                keep_diag = np.diag(
+                    (max_iou < iou_threshold).astype(np.float32))
                 updated_iou_matrix = np.dot(keep_diag, iou_matrix)
                 if (prev_iou_matrix == updated_iou_matrix).all():
                     break
 
         if use_matrix_nms:
             # Matrix NMS
-            max_iou_expand = np.tile(max_iou, (num_boxes, 1)).T  #(num_boxes)x(num_boxes)
+            # (num_boxes)x(num_boxes)
+            max_iou_expand = np.tile(max_iou, (num_boxes, 1)).T
 
             def get_decay_factor(method='gauss', sigma=0.5):
                 if method == 'gauss':
                     # gaussian decay
-                    decay_factor = np.exp(-(iou_matrix**2 - max_iou_expand**2) / sigma)
+                    decay_factor = np.exp(-(iou_matrix **
+                                          2 - max_iou_expand**2) / sigma)
                 else:
                     # linear decay
                     decay_factor = (1 - iou_matrix) / (1 - max_iou_expand)
@@ -472,12 +539,14 @@ def fast_cluster_nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1
                 # https://github.com/Zzh-tju/CIoU/blob/master/layers/functions/detection.py
                 # https://zhuanlan.zhihu.com/p/157900024
 
-                #diou_matrix = box_diou_matrix(b_nms, b_nms)
-                #flag = (updated_iou_matrix >= 0).astype(np.float32)
-                #penalty_coef = np.prod(np.minimum(np.exp(-(updated_iou_matrix**2)/0.2) + diou_matrix*((updated_iou_matrix>0).astype(np.float32)), flag), axis=0)
-                penalty_coef = np.prod(np.exp(-(updated_iou_matrix**2)/0.2), axis=0)
+                # diou_matrix = box_diou_matrix(b_nms, b_nms)
+                # flag = (updated_iou_matrix >= 0).astype(np.float32)
+                # penalty_coef = np.prod(np.minimum(np.exp(-(updated_iou_matrix**2)/0.2) + diou_matrix*((updated_iou_matrix>0).astype(np.float32)), flag), axis=0)
+                penalty_coef = np.prod(
+                    np.exp(-(updated_iou_matrix**2)/0.2), axis=0)
             else:
-                penalty_coef = np.prod(np.exp(-(updated_iou_matrix**2)/0.2), axis=0)
+                penalty_coef = np.prod(
+                    np.exp(-(updated_iou_matrix**2)/0.2), axis=0)
             s_spm = penalty_coef * s_nms
             keep_mask = s_spm >= confidence
 
@@ -487,24 +556,34 @@ def fast_cluster_nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1
 
         if use_weighted:
             # generate weights matrix with box score and final IoU matrix
-            weights = (updated_iou_matrix*(updated_iou_matrix>iou_threshold).astype(np.float32) + np.eye(num_boxes)) * (s_nms.reshape((1, num_boxes)))
+            weights = (updated_iou_matrix*(updated_iou_matrix > iou_threshold).astype(
+                np.float32) + np.eye(num_boxes)) * (s_nms.reshape((1, num_boxes)))
 
             # convert box format to (xmin,ymin,xmax,ymax) for weighted average,
             # and expand to NxN array
-            xmin_expand = np.tile(b_nms[:,0], (num_boxes, 1))  #(num_boxes)x(num_boxes)
-            ymin_expand = np.tile(b_nms[:,1], (num_boxes, 1))  #(num_boxes)x(num_boxes)
-            xmax_expand = np.tile(b_nms[:,0]+b_nms[:,2], (num_boxes, 1))  #(num_boxes)x(num_boxes)
-            ymax_expand = np.tile(b_nms[:,1]+b_nms[:,3], (num_boxes, 1))  #(num_boxes)x(num_boxes)
+            # (num_boxes)x(num_boxes)
+            xmin_expand = np.tile(b_nms[:, 0], (num_boxes, 1))
+            # (num_boxes)x(num_boxes)
+            ymin_expand = np.tile(b_nms[:, 1], (num_boxes, 1))
+            # (num_boxes)x(num_boxes)
+            xmax_expand = np.tile(b_nms[:, 0]+b_nms[:, 2], (num_boxes, 1))
+            # (num_boxes)x(num_boxes)
+            ymax_expand = np.tile(b_nms[:, 1]+b_nms[:, 3], (num_boxes, 1))
 
             # apply weighted average to all the candidate boxes
             weightsum = weights.sum(axis=1)
-            xmin_expand = np.true_divide((xmin_expand*weights).sum(axis=1), weightsum)
-            ymin_expand = np.true_divide((ymin_expand*weights).sum(axis=1), weightsum)
-            xmax_expand = np.true_divide((xmax_expand*weights).sum(axis=1), weightsum)
-            ymax_expand = np.true_divide((ymax_expand*weights).sum(axis=1), weightsum)
+            xmin_expand = np.true_divide(
+                (xmin_expand*weights).sum(axis=1), weightsum)
+            ymin_expand = np.true_divide(
+                (ymin_expand*weights).sum(axis=1), weightsum)
+            xmax_expand = np.true_divide(
+                (xmax_expand*weights).sum(axis=1), weightsum)
+            ymax_expand = np.true_divide(
+                (ymax_expand*weights).sum(axis=1), weightsum)
 
             # stack the weighted average boxes and convert back to (x,y,w,h)
-            b_nms = np.stack([xmin_expand, ymin_expand, xmax_expand-xmin_expand, ymax_expand-ymin_expand], axis=1)
+            b_nms = np.stack([xmin_expand, ymin_expand, xmax_expand -
+                             xmin_expand, ymax_expand-ymin_expand], axis=1)
 
         # keep NMSed boxes
         b_nms = b_nms[keep_mask]
@@ -526,7 +605,6 @@ def fast_cluster_nms_boxes(boxes, classes, scores, iou_threshold, confidence=0.1
     nclasses = [np.array(nclasses)]
     nscores = [np.array(nscores)]
     return nboxes, nclasses, nscores
-
 
 
 def filter_boxes(boxes, classes, scores, max_boxes):
@@ -573,7 +651,6 @@ def yolo_adjust_boxes(boxes, img_shape):
         xmin = max(0, np.floor(xmin + 0.5).astype('int32'))
         ymax = min(height, np.floor(ymax + 0.5).astype('int32'))
         xmax = min(width, np.floor(xmax + 0.5).astype('int32'))
-        adjusted_boxes.append([xmin,ymin,xmax,ymax])
+        adjusted_boxes.append([xmin, ymin, xmax, ymax])
 
-    return np.array(adjusted_boxes,dtype=np.int32)
-
+    return np.array(adjusted_boxes, dtype=np.int32)

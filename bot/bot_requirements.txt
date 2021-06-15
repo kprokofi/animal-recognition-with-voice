@@ -8,3 +8,6 @@ torchvision==0.9.1+cpu
 python-telegram-bot==13.4.1
 tornado==6.1
 python-dotenv==0.17.1
+imgaug==1.18.
+opencv-python
+opencv-contrib-python
