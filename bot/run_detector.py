@@ -1,6 +1,5 @@
 
 import os
-import cv2
 import time
 import numpy as np
 from PIL import Image
@@ -77,7 +76,8 @@ def detect_img(model, config):
             print('Open Error! Try again!')
             continue
         else:
-            image_array, out_boxes, out_classnames, out_scores = detect_image(model, image, config)
+            image_array, out_boxes, out_classnames, out_scores = detect_image(
+                model, image, config)
             print(out_classnames)
             print(out_scores)
             print(out_boxes)
@@ -89,12 +89,7 @@ def detect_img(model, config):
             Image.fromarray(image_array).show()
 
 
-
-
 if os.path.isfile(MODEL_PATH):
     print('Exists!')
 model = load(MODEL_PATH)
 detect_img(model, config)
-
-
-
