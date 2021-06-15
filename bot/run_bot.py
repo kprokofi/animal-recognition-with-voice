@@ -1,9 +1,10 @@
 import os
 import logging
 from dotenv import load_dotenv
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Dispatcher
+
 from recognizer_bot.classifier import Classifier
 from recognizer_bot.handlers import init_classifier, help_command, make_sound
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Dispatcher
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.DEBUG)
@@ -29,6 +30,5 @@ def main():
 
 
 if __name__ == '__main__':
-    load_dotenv(
-        dotenv_path='/home/friday/HSE/animal-recognition-with-voice/.env')
+    load_dotenv()
     main()

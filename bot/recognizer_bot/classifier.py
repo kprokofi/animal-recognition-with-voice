@@ -22,7 +22,7 @@ class Classifier():
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def upload_labels(classes_path):
+    def upload_labels(self, classes_path):
         with open(classes_path) as f:
             labels = [line.strip().split()[1] for line in f.readlines()]
         return labels
