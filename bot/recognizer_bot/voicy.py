@@ -1,6 +1,24 @@
 import os
 
 labels_to_voice = {
+    # birds: jay,  chickadee, water_ouzel, kite, partridge, hornbill, jacamar
+    # toucan little_blue_heron American_egret crane European_gallinule
+    # redshank pelican
+    'Japanese_spaniel': 'dog',
+    'Newfoundland': 'dog',
+    'Afghan_hound': 'dog',
+    'Cardigan': 'dpg',
+    'killer_whale': 'humpback-whale',
+    'triceratops': 'dinosaur',
+    'cock': 'chicken',
+    'drake': 'duck',
+    'red-breasted_merganser': 'duck',
+    'thunder_snake': 'rattlesnake',
+    'ringneck_snake': 'rattlesnake',
+    'hognose_snake': 'rattlesnake',
+    'water_snake': 'rattlesnake',
+    'boa_constrictor': 'rattlesnake',
+    'diamondback': 'rattlesnake',
     'hippopotamus': 'hippopotamus',
     'black-footed_ferret': 'ferret',
     'lion': 'lion',
@@ -16,6 +34,7 @@ labels_to_voice = {
     'Egyptian_cat': 'cat',
     'Madagascar_cat': 'cat',
     'robin': 'robin',
+    'bulbul': 'robin',
     'alligator_lizard': 'lizard',
     'American_alligator': 'alligator',
     'zebra': 'zebra',
@@ -26,6 +45,8 @@ labels_to_voice = {
     'green_lizard': 'lizard',
     'leopard': 'leopard',
     'snow_leopard': 'leopard',
+    'cheetah': 'leopard',
+    'jaguar': 'leopard',
     'lesser_panda': 'panda',
     'giant_panda': 'panda',
     'cabbage_butterfly': 'butterfly',

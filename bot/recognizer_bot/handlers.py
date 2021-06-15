@@ -66,13 +66,13 @@ def make_sound(update: Update, context: CallbackContext):
             # Sending response to user
             if label not in classified_animals:
                 send_image(update, context, Image.fromarray(cropped_image))
-                send_text(update, context, f"I guess it's a {label} 🧐 ")  # TODO make emoji list
+                send_text(update, context, f"I guess it's a {label.replace('_',' ')} 🧐 ")  # TODO make emoji list
                 classified_animals.add(label)
                 sounds_path = os.getenv('SOUNDS_PATH')
                 voice_path = get_voice_by_label(
                     sounds_path=sounds_path, label=label)
                 if voice_path:
-                    send_text(update, context, f"...and {label} says ")
+                    send_text(update, context, f"...and {label.replace('_',' ')} says ")
                     send_voice_message(update, context, voice_path)
                 else:
                     send_text(update, context, "Sorry, I don't what it says 😟")
