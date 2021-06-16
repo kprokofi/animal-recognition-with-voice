@@ -1,6 +1,11 @@
 # Statics
 *.ogg
 *.mp3
+*.jpg
+
+# VS code
+.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

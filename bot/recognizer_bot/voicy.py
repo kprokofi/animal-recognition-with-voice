@@ -1,6 +1,24 @@
 import os
 
 labels_to_voice = {
+    # birds: jay,  chickadee, water_ouzel, kite, partridge, hornbill, jacamar
+    # toucan little_blue_heron American_egret crane European_gallinule
+    # redshank pelican
+    'Japanese_spaniel': 'dog',
+    'Newfoundland': 'dog',
+    'Afghan_hound': 'dog',
+    'Cardigan': 'dpg',
+    'killer_whale': 'humpback-whale',
+    'triceratops': 'dinosaur',
+    'cock': 'chicken',
+    'drake': 'duck',
+    'red-breasted_merganser': 'duck',
+    'thunder_snake': 'rattlesnake',
+    'ringneck_snake': 'rattlesnake',
+    'hognose_snake': 'rattlesnake',
+    'water_snake': 'rattlesnake',
+    'boa_constrictor': 'rattlesnake',
+    'diamondback': 'rattlesnake',
     'hippopotamus': 'hippopotamus',
     'black-footed_ferret': 'ferret',
     'lion': 'lion',
@@ -16,6 +34,7 @@ labels_to_voice = {
     'Egyptian_cat': 'cat',
     'Madagascar_cat': 'cat',
     'robin': 'robin',
+    'bulbul': 'robin',
     'alligator_lizard': 'lizard',
     'American_alligator': 'alligator',
     'zebra': 'zebra',
@@ -26,6 +45,8 @@ labels_to_voice = {
     'green_lizard': 'lizard',
     'leopard': 'leopard',
     'snow_leopard': 'leopard',
+    'cheetah': 'leopard',
+    'jaguar': 'leopard',
     'lesser_panda': 'panda',
     'giant_panda': 'panda',
     'cabbage_butterfly': 'butterfly',
@@ -37,8 +58,8 @@ labels_to_voice = {
     'African_elephant': 'elephant',
     'scorpion': 'scorpion',
     'Maltese_dog': 'dog',
-    'Old_English_sheepdog': 'sheep',
-    'Shetland_sheepdog': 'sheep',
+    'Old_English_sheepdog': 'dog',
+    'Shetland_sheepdog': 'dog',
     'Greater_Swiss_Mountain_dog': 'dog',
     'Bernese_mountain_dog': 'dog',
     'French_bulldog': 'dog',
@@ -62,15 +83,13 @@ labels_to_voice = {
     'pug': 'dog'
 }
 
-SOUNDS_PATH = os.getenv('SOUNDS_PATH') or './sounds'
 
-def prepare_voice(voice: str):
-    return os.path.join(SOUNDS_PATH, voice + '.ogg')
+def prepare_voice_path(sounds_path, voice_path: str):
+    return os.path.join(sounds_path, voice_path + '.ogg')
 
 
-def choose_voice(label: str):
+def get_voice_by_label(sounds_path: str, label: str):
     label = label.strip()
     if label in labels_to_voice:
-        return prepare_voice(labels_to_voice[label])
+        return prepare_voice_path(sounds_path, labels_to_voice[label])
     return None
-
