@@ -23,8 +23,8 @@ HSE project. Idea to create animal detection system with voice guidance
 
 ### android app
 
-fluter SDK
-tflite
+* fluter SDK
+* tflite
 # Result metrics
 
 * mAP@IoU=0.50 result: 58.671837
